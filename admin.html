@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh‑CN">
+<head>
+<meta charset="UTF‑8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;font-family:"Microsoft Yahei",sans-serif;margin:0;padding:0;}
+body{background:#f4f7fa;padding:16px;}
+.container{max-width:1200px;margin:0 auto;}
+.card{background:#fff;padding:18px;border-radius:8px;box-shadow:0 2px 6px #0001;margin:12px 0;}
+button{padding:9px 14px;border:0;border-radius:6px;background:#2374d1;color:#fff;cursor:pointer;font-size:14px;margin:3px;}
+button.success{background:#28a950;}
+button.danger{background:#c53030;}
+button.warn{background:#e68924;}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0;}
+table{width:100%;border-collapse:collapse;margin:10px 0;}
+th,td{border:1px solid #ccc;padding:8px;text-align:center;}
+th{background:#edf2fa;}
+.hidden{display:none !important;}
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;}
+.login-card{width:420px;background:#fff;padding:24px;border-radius:10px;box-shadow:0 2px 14px #00000022;}
+.form-item{margin:12px 0;}
+.form-item label{display:block;margin-bottom:4px;}
+.form-item input,.form-item select{width:100%;padding:10px;border:1px solid #bbb;border-radius:6px;font-size:14px;}
+.modal{position:fixed;top:12%;left:50%;transform:translateX(-50%);width:480px;background:#fff;z-index:99;padding:22px;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,0.25);}
+</style>
+</head>
+<body>
+<div id="pageLogin" class="login-wrap">
+    <div class="login-card">
+        <h2>管理员后台登录</h2>
+        <div class="form-item">
+            <label>管理员用户名</label>
+            <input id="loginUser" type="text" placeholder="账号">
+        </div>
+        <div class="form-item">
+            <label>管理员密码</label>
+            <input id="loginPwd" type="password" placeholder="密码">
+        </div>
+        <div class="row" style="margin-top:20px;">
+            <button style="flex:1;" onclick="doLogin()">登录</button>
+        </div>
+    </div>
+</div>
+
+<div id="pageAdmin" class="hidden">
+    <div class="container">
+        <div class="card">
+            <div class="row" style="justify-content:space-between;">
+                <h2>管理员后台</h2>
+                <button class="danger" onclick="logout()">退出登录</button>
+            </div>
+            <div class="row">
+                <div class="form-item" style="flex:1;">
+                    <label>生成注册验证码（6位数字）</label>
+                    <input id="newCodeInput" type="text" placeholder="输入6位数字">
+                </div>
+                <div style="margin-top:22px;">
+                    <button class="success" onclick="addNewRegCode()">添加验证码</button>
+                </div>
+            </div>
+            <div class="row">
+                <div class="form-item" style="flex:1;">
+                    <label>新建班级</label>
+                    <input id="newAdminClassName" placeholder="输入班级名称">
+                </div>
+                <div style="margin-top:22px;">
+                    <button class="success" onclick="adminCreateClass()">新建班级</button>
+                </div>
+            </div>
+
+            <h3 style="margin-top:18px;">全部账号列表（学生/教师）</h3>
+            <div id="adminAllAccountList"></div>
+
+            <h3 style="margin-top:18px;">班级列表与成员管理</h3>
+            <div id="adminClassManageWrap"></div>
+        </div>
+    </div>
+</div>
+
+<!--弹窗：账号加入班级弹窗 -->
+<div id="modalAddUserToClass" class="modal hidden">
+    <h3>将账号加入班级</h3>
+    <input type="hidden" id="curSelectUserId">
+    <div class="form-item">
+        <label>选择班级</label>
+        <select id="selectTargetClass"></select>
+    </div>
+    <div class="form-item">
+        <label>是否设为班主任（仅教师生效）</label>
+        <input type="checkbox" id="chkIsHeadTeacher">
+    </div>
+    <div class="form-item">
+        <label>填写科目（学生可留空）</label>
+        <input id="inputSubject" placeholder="例如：语文、数学">
+    </div>
+    <div class="row">
+        <button class="success" onclick="confirmAddUserToClass()">确认加入班级</button>
+        <button class="danger" onclick="closeModalAddUserClass()">关闭</button>
+    </div>
+</div>
+
+<script>
+// =========填入你的Supabase URL 和 Anon密钥 =========
+const SUPABASE_URL = "https://qaatcohuwwwxvwuzchqv.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFhYXRjb2h1d3d3eHZ3dXpjaHF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkyMTIyMzIsImV4cCI6MjEwNDc4ODIzMn0.y6xmhIMqLM-hInVqJunInFXRFpmQUy9PFwkS3wRiBqU";
+let sbClient = null;
+
+async function initSupabase(){
+  if(!window.supabase){
+    alert("Supabase JS加载失败！请检查网络");
+    return false;
+  }
+  const { createClient } = window.supabase;
+  sbClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  console.log("✅数据库初始化完成");
+  return true;
+}
+
+async function doLogin(){
+    const u=document.getElementById("loginUser").value.trim();
+    const p=document.getElementById("loginPwd").value.trim();
+    if(!u||!p){alert("请输入账号密码");return;}
+    const {data:adminData}=await sbClient.from('admin_config').select('*').eq('admin_user',u).eq('admin_pwd',p).single();
+    if(adminData){
+        document.getElementById("pageLogin").classList.add("hidden");
+        document.getElementById("pageAdmin").classList.remove("hidden");
+        await renderAdminPage();
+        return;
+    }
+    alert("管理员账号密码错误！");
+}
+
+function logout(){
+    document.getElementById("pageLogin").classList.remove("hidden");
+    document.getElementById("pageAdmin").classList.add("hidden");
+    document.getElementById("loginUser").value="";
+    document.getElementById("loginPwd").value="";
+}
+
+//弹窗：账号加入班级
+function openModalAddUserClass(userId){
+    document.getElementById("curSelectUserId").value = userId;
+    document.getElementById("chkIsHeadTeacher").checked=false;
+    document.getElementById("inputSubject").value="";
+    //填充班级下拉
+    sbClient.from("class_info_new").select("id,class_name").then(res=>{
+        const sel=document.getElementById("selectTargetClass");
+        sel.innerHTML="";
+        res.data.forEach(cl=>{
+            const opt=document.createElement("option");
+            opt.value=cl.id;
+            opt.innerText=cl.class_name;
+            sel.appendChild(opt);
+        });
+    });
+    document.getElementById("modalAddUserToClass").classList.remove("hidden");
+}
+function closeModalAddUserClass(){
+    document.getElementById("modalAddUserToClass").classList.add("hidden");
+}
+async function confirmAddUserToClass(){
+    const userId = parseInt(document.getElementById("curSelectUserId").value);
+    const classId = parseInt(document.getElementById("selectTargetClass").value);
+    const isHead = document.getElementById("chkIsHeadTeacher").checked;
+    const subj = document.getElementById("inputSubject").value.trim();
+    const {error}=await sbClient.from("class_user_rel").insert([{
+        class_id:classId,
+        user_id:userId,
+        is_head_teacher:isHead,
+        subject:subj
+    }]);
+    if(error){
+        alert(error.message);
+        return;
+    }
+    closeModalAddUserClass();
+    await renderAdminPage();
+}
+
+async function addNewRegCode(){
+    const c = document.getElementById("newCodeInput").value.trim();
+    if(!c||c.length!==6){alert("必须输入6位验证码");return;}
+    const {error}=await sbClient.from('reg_code').insert([{code:c,used:false}]);
+    if(error){alert(error.message);return;}
+    alert("验证码生成成功");
+    document.getElementById("newCodeInput").value="";
+    await renderAdminPage();
+}
+
+async function adminCreateClass(){
+    const cName = document.getElementById("newAdminClassName").value.trim();
+    if(!cName){alert("填写班级名称");return;}
+    await sbClient.from("class_info_new").insert([{class_name:cName}]);
+    document.getElementById("newAdminClassName").value="";
+    alert("班级新建完成");
+    await renderAdminPage();
+}
+
+//删除整个班级（级联清理全部关联数据）
+async function adminDeleteClass(classId,className){
+    if(!confirm(`确认删除班级【${className}】？\n⚠️会删除班级内学生名单、作业、提交记录、所有成员关联，不可恢复！`)) return;
+    //1.找到班级全部作业ID
+    const {data:hwList}=await sbClient.from("homework").select("id").eq("class_id",classId);
+    if(hwList && hwList.length>0){
+        const hwIds=hwList.map(i=>i.id);
+        await sbClient.from("hw_submit").delete().in("hw_id",hwIds);
+        await sbClient.from("homework").delete().eq("class_id",classId);
+    }
+    await sbClient.from("class_student").delete().eq("class_id",classId);
+    await sbClient.from("class_user_rel").delete().eq("class_id",classId);
+    await sbClient.from("class_info_new").delete().eq("id",classId);
+    alert("班级已删除");
+    await renderAdminPage();
+}
+
+//删除账号
+async function adminDeleteAccount(uid,loginName){
+    if(!confirm(`确认删除账号【${loginName}】?\n账号加入过的班级关联也一并清除！不可恢复`)) return;
+    await sbClient.from("class_user_rel").delete().eq("user_id",uid);
+    await sbClient.from("user_account").delete().eq("id",uid);
+    await renderAdminPage();
+}
+
+//移出班级
+async function adminRemoveMember(relId){
+    if(!confirm("确定移出该成员？")) return;
+    await sbClient.from("class_user_rel").delete().eq("id",relId);
+    await renderAdminPage();
+}
+
+async function renderAdminPage(){
+    const {data:allAccounts}=await sbClient.from("user_account").select("*").order("id");
+    const {data:classList}=await sbClient.from("class_info_new").select("*").order("id");
+    const {data:relAll}=await sbClient.from("class_user_rel").select("*,user_account(*),class_info_new(*)");
+
+    //渲染账号列表：每行【加入班级】【删除账号】
+    let accHtml="<table><tr><th>ID</th><th>登录账号</th><th>角色</th><th>创建时间</th><th>操作</th></tr>";
+    allAccounts.forEach(ua=>{
+        accHtml+=`<tr>
+        <td>${ua.id}</td>
+        <td>${ua.login_name}</td>
+        <td>${ua.role==="student"?"学生":"教师"}</td>
+        <td>${ua.create_at||""}</td>
+        <td>
+            <button class="warn" onclick="openModalAddUserClass(${ua.id})">加入班级</button>
+            <button class="danger" onclick="adminDeleteAccount(${ua.id},'${ua.login_name}')">删除账号</button>
+        </td>
+        </tr>`;
+    });
+    accHtml+="</table>";
+    document.getElementById("adminAllAccountList").innerHTML=accHtml;
+
+    //渲染班级卡片：移除班级内部添加账号控件；只展示现有成员+删除班级按钮
+    let clsWrapHtml="";
+    for(let ci of classList){
+        let members = relAll.filter(r=>r.class_id===ci.id);
+        clsWrapHtml+=`<div class="card">
+        <div class="row" style="justify-content:space-between;">
+            <h4>班级：${ci.class_name} (ID:${ci.id})</h4>
+            <button class="danger" onclick="adminDeleteClass(${ci.id},'${ci.class_name}')">删除整个班级</button>
+        </div>
+        <h5>本班现有成员</h5>
+        <table>
+        <tr><th>账号</th><th>身份</th><th>是否班主任</th><th>科目</th><th>操作</th></tr>`;
+        members.forEach(m=>{
+            clsWrapHtml+=`<tr>
+            <td>${m.user_account.login_name}</td>
+            <td>${m.user_account.role==='student'?'学生':'教师'}</td>
+            <td>${m.is_head_teacher?'是':'否'}</td>
+            <td>${m.subject||"-"}</td>
+            <td><button class="danger" onclick="adminRemoveMember(${m.id})">移出班级</button></td>
+            </tr>`;
+        });
+        clsWrapHtml+=`</table>
+        </div>`;
+    }
+    document.getElementById("adminClassManageWrap").innerHTML=clsWrapHtml;
+}
+
+document.addEventListener('DOMContentLoaded', async function(){
+  await initSupabase();
+});
+</script>
+</body>
+</html>
